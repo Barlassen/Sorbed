@@ -1,7 +1,16 @@
 # Devir Teslim — Sorbed × YOLO × JEPA
 
 > Yeni bir sohbette / oturumda kaldığımız yerden devam etmek için özet.
-> Son güncelleme: 2026-10-30.
+> Son güncelleme: 2026-11-27.
+
+**2026-11-07, evreleme adım 3 bitti** (ayrıntı: "ÖN-KAYIT — evreleme adım 3" → SONUÇ). kaggle kilitli dış testinde
+(184 görüntü / 175 kaynak) üç sonuç çıktı:
+- fr7kn ek verisi evre CNN'ini belirgin iyileştiriyor: 0.30 → 0.43, fark GA [0.08, 0.19].
+- Daha iyi D maskesi kuralları anlamlı iyileştirmiyor: petchs +0.03, GA 0'ı içeriyor.
+- Hibrit H (kurallar + CNN'in Evre 3 ile 4 ayrımı), 5-sınıfta petchs ve kaggle'ın ikisinde de kurallardan iyi
+  (kaggle +0.05, GA [0.004, 0.09]) → ürüne aday. Ürün değişmedi; geçiş ayrı ön-kayıt ister.
+
+Uyarı: yalnız petchs'le eğitilen CNN dışarıda çöküyor (petchs 0.52 → kaggle 0.30).
 
 **2026-10-30 son durum (ayrıntı: "ÖN-KAYIT — katmanlı yara haritası" bölümü):** Kaynak-katlı DeepLab 166 bası
 kaynağında açık yüzeyi old-first'ün iki katı iyi buluyor: Dice 0.28 → 0.60, ıskalama %40 → %5, fark GA 0.27–0.36.
@@ -54,6 +63,118 @@ yama × 192 boyut, 6 katman, 5 kanal). Dizüstü ölçeğinde rastgele başlang�
 
 **Git:** `claude/sorbed-details-heuk41`. Staj raporları (`STAJ_RAPORU_*.md/.docx`) bilerek git dışında
 (`.git/info/exclude`); `.claude/settings.json` kişisel, commit edilmez.
+
+## ÖN-KAYIT — evreleme adım 3: büyük veri + D maskesiyle kurallar + hibrit (2026-11-04, sonuçtan önce; kullanıcı onayladı)
+**Sorular:** (1) fr7kn'in petchs'te olmayan ~480 kaynağı, etiketleri gürültülü olsa da doğrudan evre CNN'ini (B)
+iyileştiriyor mu? (2) Kural eşikleri D maskesiyle yeniden ayarlanınca evre iyileşiyor mu (M3'te ayarsız D 0.327)?
+(3) Evre 3 ile 4'ü B'ye bırakan hibrit, kuralların hiç veremediği Evre 4'ü kazandırıyor mu?
+**Veri denetimi (2026-10-31, model çıktısı görülmeden):**
+- fr7kn (`data/ruler_stage_fr7kn`, 1858 görüntü) = **612 kaynak** (kaynak kimliği = dosya adında `_jpg.rf.` öncesi;
+  Roboflow ~3 kopya). Eylül train/test ayrımı 114 kaynak sızdırıyor → o ayrım bu adımda kullanılmaz (Eylül JEPA evre
+  probu sayıları da şişik, tüm enkoderler için eşit). 25 kaynak birden çok evre etiketi taşıyor.
+- petchs 166 kaynağının **130'u fr7kn'de aynı fotoğraf** (aynı kimlik, dHash 0); evre etiketi yalnız **51/130**'da
+  aynı. Uyuşmazlığın çoğu petchs 3 → fr7kn 2 (45); bunların 28'inde slough, 27'sinde eskar poligonu var (NPIAP
+  Evre 2'de olamaz) → fr7kn'in 2/3 sınırı güvenilmez.
+- kaggle_stages (`data/corpus/kaggle_stages/Dataset`): Stage_I 28, Stage_II 53, Stage_III 46, Stage_IV 32,
+  Unstageable 29, SDTI 23 (Invalid 47 atılır) = 211. petchs ile 3 gerçek kopya, fr7kn ile 0 (9×8 dHash ≤ 8'in 28
+  adayından 25'i bulanık fr7kn Evre 1 kırpmalarında sahte eşleşme; gözle elendi). Bu denetim dışında kaggle'a
+  bakılmadı. **Not:** kaggle'ın 204 görüntüsü (etiketsiz) JEPA havuzu `data/rgbd_pool_v2`'ye girdi → bu adımda JEPA
+  başlangıçlı hiçbir model kullanılmaz. DeepLab, doku CNN'i ve B'nin COCO başlangıcı kaggle görmedi.
+**Adım 0 — kilitleme ve kopya temizliği (bir kez, ölçümden önce):**
+- kaggle ↔ petchs ∪ fr7kn: dönüş ve çevirme dahil dHash; adaylar temas sayfasında gözle onaylanır, onaylı kopyalar
+  kaggle'dan atılır. kaggle'ın kendi içindeki kopyalar tek kaynakta birleştirilir (bootstrap birimi).
+- fr7kn ek kaynakları = 612 − petchs'tekiler; birden çok etiketli kaynaklar atılır; ek kaynak ↔ petchs dHash ≤ 6
+  (dönüş/çevirme dahil) eşleşmesi de atılır.
+- Listeler `runs/staging/step3_lists.json`'a yazılır. kaggle görüntü ve etiketleri son ölçüme kadar açılmaz.
+**B kolları** (doğrudan evre CNN'i; `training/train_stage_cnn.py` tarifi değişmeden: MobileNetV3 COCO, 384 px,
+ağırlıklı CE, AdamW 3e-4 kosinüs 30 epoch, aynı artırma):
+- **B(a):** yalnız petchs (adım 2'deki B-coco).
+- **B(b):** petchs + fr7kn ek kaynakları (tüm Roboflow kopyaları; etiket 1–4, fr7kn'de U yok). Ortak 130 kaynak
+  zaten petchs etiketiyle petchs'te.
+- İkisinde de: petchs kaynak katları (`petchs_groups`); ek kaynaklar her katın eğitimine girer, hiçbir yerde
+  değerlendirilmez; epoch seçimi yalnız petchs iç doğrulamasında (eğitim katlarının her 6. kaynağı, dengeli
+  doğruluk); sınıf ağırlıkları o katın eğitim kümesinden. Seed 0, 1, 2; olasılıklar seed'ler üzerinden ortalanır.
+**Kural kolu A-D:** adım-2 A motoru (boşluk düzeltmesi dahil); bölge = o katın DeepLab D maskesi, doku = o katın doku
+CNN'i (M3'teki özelliklerin aynısı). Eşikler adım-2 ızgarasıyla iç içe kaynak-katlı CV'de ayarlanır (u, g, d,
+açık-yatak); **eritem 0.15 sabit** (adım 2'deki güvenlik sapması). fr7kn eşik ayarına girmez (U yok, 2/3 sınırı
+güvenilmez).
+**Hibrit H:** A-D'nin çıktısı; A-D "Evre 3" der ve B(a)'da p(4) > p(3) ise → Evre 4. Gerekçeyi kurallar verir, B
+yalnız 3 ile 4'ü ayırır. İkincil: aynı kural B(b) ile (H-b).
+**Ölçüm:**
+- **petchs OOF** (n = 166, kaynak başına 1 görüntü, adım 2 ile aynı birim): 4-sınıf dengeli doğruluk {1, 2, 3/4, U};
+  5-sınıf dengeli doğruluk; Evre 4 duyarlılığı; karışıklık matrisi; kaynak üzerinden eşli bootstrap (10 000), %95 GA.
+- **kaggle (tek seferlik, en son, bütün seçimler dondurulduktan sonra):** B = 3 kat × 3 seed olasılık ortalaması;
+  maske ve doku = 3 kat modelinin olasılık ortalaması; kural eşikleri tüm petchs OOF'ta ayarlanmış hali (eritem
+  0.15). Stage_I–IV → 1–4, Unstageable → U. SDTI (23) birincil ölçüden hariç (sistemde DTI sınıfı yok); sistemin
+  onlara ne dediği ayrıca raporlanır. Bootstrap birimi = kaggle kaynağı.
+- Her iki sette raporlanan satırlar: hep "Evre 3", A × old-first (adım 2), A-D, B(a), B(b), H, H-b.
+**Karar kuralları:**
+1. **Ek veri (birincil):** kaggle'da B(b) − B(a), 4-sınıf dengeli doğrulukta > 0 ve GA 0'ı içermiyor → "ek gürültülü
+   veri işe yarıyor". petchs OOF destekleyici; ikisi çelişirse kaggle geçerli, çelişki raporlanır.
+2. **Maske → evre:** petchs OOF'ta A-D − A × old-first (eritem 0.15, iç içe CV; adım 2'de 0.336) > 0 ve GA 0'ı
+   içermiyor → maske değişimi evreye de yarıyor → M2 açığını kapatacak maske ön-kaydı öncelik kazanır.
+3. **Hibrit:** H − A-D, 5-sınıf dengeli doğrulukta hem petchs OOF'ta hem kaggle'da > 0 ve GA 0'ı içermiyor → hibrit
+   ürüne aday. Ürüne geçiş ayrı ön-kayıt ister; **bu adım ürünü değiştirmez** (maske old-first kalır).
+**Sınırlamalar:** petchs tek etiketleyici ve 5. kez kullanılıyor; kaggle etiketleyicisi bilinmiyor; fr7kn 2/3
+gürültüsü B(b)'yi Evre 2'ye kaydırabilir (karışıklık matrisinde izlenir); Evre 3/4 ayrımı fotoğraftan tanım gereği
+sınırlı; kaggle çekim ve kırpma biçimi farklı (alan kayması; dış testin amacı bu).
+**Ayrı iş (Ario, bu ölçüme girmez):** petchs ile fr7kn'in anlaşmadığı 79 kaynak için uzman hakem etiketleme sayfası.
+
+**SONUÇ (koşuldu 2026-11-04…07):**
+- **Kaynaklar:**
+  - `training/step3_lock.py` → `runs/staging/step3_lists.json`
+  - `training/run_step3_b.sh` → `runs/staging/step3/{ba,bb}_fold{k}_s{seed}.{json,pt}`
+  - `python -m training.eval_staging_step3 --petchs` → `petchs_oof.json`
+  - `--kaggle` (bir kez) → `kaggle.json`
+  - loglar: `logs/step3_*`
+- **Adım 0:**
+  - kaggle ↔ petchs/fr7kn: 128 aday (122 fr7kn, 6 petchs) gözle incelendi → 4 gerçek petchs kopyası atıldı, fr7kn ile
+    kopya yok.
+  - kaggle iç adayları: 13 adaydan 9 onaylı çift tek kaynakta birleşti. 4'ünde aynı fotoğraf iki farklı evre
+    etiketi taşıyor (kaggle etiket gürültüsü).
+  - Kalan kaggle 207: birincil 184 görüntü / 175 kaynak (1:27 2:51 3:46 4:31 U:29) + SDTI 23.
+  - fr7kn ek: 451 kaynak / 1161 görüntü (1:44 2:118 3:234 4:55). Atılanlar: petchs kimliği taşıyan 135, çok etiketli
+    21, petchs'in dönmüş/çevrilmiş kopyası 5.
+- **Eşikler** (kaggle için tüm petchs'te ayarlandı, eritem 0.15):
+  - A-D: u 0.65, g 0.15, d 0.05, açık 0.05
+  - old-first: u 0.3, g 0.3, d 0.05, açık 0.05
+
+| yöntem | petchs 4-sınıf | petchs 5-sınıf | petchs Evre 4 | kaggle 4-sınıf | kaggle 5-sınıf | kaggle Evre 4 |
+|---|---|---|---|---|---|---|
+| hep Evre 3 | 0.250 | 0.200 | 0/36 | 0.250 | 0.200 | 0/31 |
+| A × old-first | 0.336 [0.27, 0.40] | 0.262 | 0/36 | 0.360 [0.31, 0.41] | 0.300 | 0/31 |
+| A-D | 0.362 [0.30, 0.42] | 0.277 | 0/36 | 0.414 [0.35, 0.48] | 0.330 | 0/31 |
+| B(a) | 0.516 [0.41, 0.62] | 0.522 | 25/36 | 0.301 [0.26, 0.35] | 0.278 | 14/31 |
+| B(b) | 0.625 [0.52, 0.73] | 0.602 | 25/36 | 0.434 [0.38, 0.49] | 0.385 | 25/31 |
+| H | 0.362 | 0.386 [0.32, 0.45] | 22/36 | 0.414 | 0.377 [0.31, 0.44] | 14/31 |
+| H-b | 0.362 | 0.375 | 20/36 | 0.414 | 0.368 | 22/31 |
+
+**Kararlar (ön-kayıtlı kurallara göre):**
+1. **Ek veri — TUTTU.** kaggle B(b) − B(a) = +0.133, GA [0.076, 0.188]. petchs destekleyici: +0.109
+   [−0.015, 0.237]; aynı yönde, GA 0'a değiyor, çelişki yok. → Gürültülü fr7kn etiketleri bile doğrudan evre CNN'ine
+   yarıyor.
+2. **Maske → evre — TUTMADI.** petchs A-D − A × old-first = +0.027 [−0.044, 0.098]. kaggle (yalnız bilgi): +0.054
+   [−0.004, 0.110], aynı yönde. → M2 açığını kapatacak maske ön-kaydı öncelik kazanmadı.
+3. **Hibrit — TUTTU (kaggle'da kıl payı).** H − A-D (5-sınıf): petchs +0.109 [0.074, 0.143], kaggle +0.047
+   [0.004, 0.089]. → H ürüne aday; geçiş ayrı ön-kayıt ister, **ürün değişmedi**. İkincil H-b − A-D: petchs +0.098
+   [0.062, 0.133], kaggle +0.038 [−0.006, 0.078] (tutmadı).
+
+**Gözlemler (karar vermez):**
+- **B(a) dışarıda çöküyor.** Yalnız petchs'le eğitilen evre CNN'i petchs'te kurallardan iyi (0.52 > 0.36) ama
+  kaggle'da kurallardan kötü (0.30 < 0.41). 166 kaynak, petchs çekim biçimine aşırı uyuyor.
+- **B(b) kaggle'da kurallarla aynı seviyede.** 4-sınıfta ≈ A-D (0.43 / 0.41); 5-sınıfta daha iyi (0.385 / 0.330)
+  çünkü Evre 4'ü buluyor. Hataları:
+  - U'nun 22/29'una "4" diyor ve hiç U demiyor (fr7kn'de U sınıfı yok).
+  - Evre 3'ün 25/46'sına "4" diyor.
+  - Evre 2'nin 16/51'ine "1" diyor.
+  - Beklenen fr7kn 2/3 kayması petchs'te küçük kaldı (3 → 2: 20 → 22).
+- **H-b neden geçmedi:** B(b) Evre 3 ile 4'ü ayırırken fazla "4" diyor; H-b'de Evre 3'ün 24/46'sı 4'e gidiyor.
+- **Kurallar (A-D) kaggle'da:**
+  - Evre 2'nin 39/51'ine "3" diyor.
+  - Evre 4'ün hepsine 3 ya da U diyor.
+  - Evre 1'in 14/27'si belirsiz ya da DTI.
+- **SDTI (23):** hiçbir yöntem tanımıyor. A-D yalnız 1'ine DTI diyor; B(b) 4'üne Evre 1, 8'ine Evre 4 diyor.
+- **Sınırlama:** kaggle etiketleri de gürültülü (yukarıdaki 4 çelişkili kopya çifti).
 
 ## ÖN-KAYIT — katmanlı yara haritası v1 + kaynak-katlı DeepLab (2026-10-30, sonuçtan önce)
 **Fikir** (kullanıcı; Ario'nun sıralı katmanlarıyla aynı): yara tek maske değil, eş yükselti eğrileri gibi iç içe

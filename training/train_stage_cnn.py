@@ -5,7 +5,13 @@ source-disjoint internal val (every 6th training source), and writes predictions
 fold. Backbone: MobileNetV3 from the cached DeepLab COCO weights (``--init coco``) or from that fold's tissue CNN
 (``--init tissue``, which never saw the held-out fold either).
 
+Step 3 (HANDOFF 2026-11-04): ``--extra`` adds the fr7kn extra sources of ``runs/staging/step3_lists.json`` (not in
+petchs, one stage label, all Roboflow copies) to the training set of every fold; they are never validated or
+evaluated on. ``--save`` keeps the selected weights for the kaggle external test.
+
     python -m training.train_stage_cnn --fold 0 --init coco --out runs/staging/b_coco_fold0.json
+    python -m training.train_stage_cnn --fold 0 --extra --seed 1 --out runs/staging/step3/bb_fold0_s1.json \
+        --save runs/staging/step3/bb_fold0_s1.pt
 """
 
 from __future__ import annotations
@@ -97,6 +103,8 @@ def main() -> None:
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--extra", action="store_true", help="add the fr7kn extra sources to training (step 3)")
+    ap.add_argument("--save", help="write the selected weights here")
     args = ap.parse_args()
     torch.manual_seed(args.seed)
     rng = np.random.default_rng(args.seed)
@@ -108,6 +116,10 @@ def main() -> None:
     train = [r for r in rows if folds[source(r[0])] != args.fold and source(r[0]) not in val_src]
     val = [r for r in rows if source(r[0]) in val_src]
     held = [r for r in rows if folds[source(r[0])] == args.fold]
+    if args.extra:
+        extra = json.loads(Path("runs/staging/step3_lists.json").read_text())["fr7kn_extra"]
+        train += [(f, CLASSES.index(v["label"]), cv2.imread(f"data/ruler_stage_fr7kn/all_images/{f}"))
+                  for v in extra.values() for f in v["files"]]
     print(f"fold {args.fold}: train {len(train)} / internal val {len(val)} / held-out {len(held)}", flush=True)
 
     dev = device()
@@ -140,10 +152,14 @@ def main() -> None:
             best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
         print(f"ep {ep:02d} loss {np.mean(losses):.3f} val-bal-acc {ba:.3f} best {best[0]:.3f}@{best[1]}", flush=True)
     model.load_state_dict(best_state)
+    if args.save:
+        Path(args.save).parent.mkdir(parents=True, exist_ok=True)
+        torch.save(best_state, args.save)
     probs = predict(model, [im for _, _, im in held])
-    out = {f: {"pred": CLASSES[int(p.argmax())], "probs": [round(float(v), 4) for v in p]} for (f, _, _), p in zip(held, probs)}
+    out = {f: {"pred": CLASSES[int(p.argmax())], "probs": [round(float(v), 4) for v in p]} for (f, _, _), p in zip(held, probs, strict=True)}
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-    Path(args.out).write_text(json.dumps({"fold": args.fold, "init": args.init, "best_epoch": best[1],
+    Path(args.out).write_text(json.dumps({"fold": args.fold, "init": args.init, "extra": args.extra,
+                                          "seed": args.seed, "best_epoch": best[1],
                                           "internal_val_bal_acc": round(best[0], 3), "pred": out}, indent=1))
     print(f"saved {args.out} (internal val balanced accuracy {best[0]:.3f}, epoch {best[1]})")
 
