@@ -12,6 +12,40 @@
 
 Uyarı: yalnız petchs'le eğitilen CNN dışarıda çöküyor (petchs 0.52 → kaggle 0.30).
 
+**2026-11-27, evreleme adım 4 bitti** (ayrıntı: "ÖN-KAYIT — evreleme adım 4" → SONUÇ). PIID ikinci kilitli dış
+testinde (1052 görüntü / 1029 kaynak, evre 1–4) B(b) 0.584 [0.555, 0.612], B(a) 0.542, kurallar A-D 0.205 ("hep
+Evre 3" 0.25'in altında), hibrit H 0.262. K1 (B(b) − B(a) +0.041 [0.007, 0.075]) ve K2 (H − A-D +0.057 [0.039,
+0.074]) tuttu. Kurallar Evre 1 ve 4'ü hiç veremiyor → üründe kural motoru yerine/önünde evre CNN'i adayı (ayrı
+ön-kayıt ister).
+
+**Adım 4'ün adım 0'ı: PIID ikinci dış test olarak kilitlendi** (hiçbir model çıktısına bakılmadı). Plan: (1) eğitimsiz iki düzeltme (kural "U" derse U, yoksa B(b); B(b) için p(4) eşiği, petchs'te
+ayarlı), (2) yöntem ön-kayda yazılıp kullanıcı onaylayınca PIID'de bir kez ölçüm. PIID'de U yok → U düzeltmesi
+yalnız petchs'te ölçülebilir.
+- **Kopya taraması:** dHash (8 döndürme/ayna) + yeni kırpma-duyarlı tarama `training/step4_crop_dups.py` (SIFT
+  anahtar noktası + RANSAC afin uyum, eşik ≥ 20 inlier; 3000 alakasız çiftte en fazla 11; bilinen kırpık kopya
+  stage_1_49681 ↔ kaggle Stage_I_014 1. sırada). Hepsi göz kontrolünden geçti (same / same_wound = onay);
+  kararlar `runs/staging/step4_review_{dhash,cf_ck,ci}.json`, toplu liste `step4_dup_review.json`.
+- **Sonuç** (`runs/staging/step4_lists.json`): 1091 → **1052 görüntü / 1029 kaynak** (1: 222, 2: 312, 3: 267,
+  4: 251). Atılan 39 PIID görüntüsünün kopyası: yalnız fr7kn'de 27, fr7kn + kaggle 6, fr7kn + maske/doku eğitim
+  görüntüsü (Figshare) 3, yalnız Figshare 2, yalnız kaggle 1. fr7kn kopyalarının çoğu Medetec fotoğrafının
+  Roboflow'da kırpılıp aynalanmış hali; petchs'le ortak yok. İç birleştirme: 22 kaynak birden çok görüntülü; 2
+  kaynakta etiket çelişkisi (Evre 3 ↔ 4; biri debridman öncesi/sonrası). Ayrıca PIID stage_4_21753 = fr7kn
+  `Stage2_13` (etiketler çelişiyor; görüntü atıldı).
+- **Adım 3 kaggle testinde sızıntı bulundu (sonradan, ön-kayıtsız):** kırpma taraması 184 birincil test
+  görüntüsünün 30'unun (%16) eğitim verisinde kırpık/aynalı kopyasını buldu (25'i fr7kn ekinde, 5'i petchs'te;
+  dHash hiçbirini yakalamamıştı). Kayıtlı tahminler bunlar çıkarılarak yeniden puanlandı
+  (`training/step3_leak_posthoc.py` → `runs/staging/step3/kaggle_posthoc_leak.json`; model yeniden koşulmadı):
+  154 görüntü / 149 kaynakta A-D 0.426, B(a) 0.299, B(b) 0.424; karar 1 +0.124 [0.061, 0.186], karar 3 +0.053
+  [0.005, 0.100], kurallar Evre 4 0/25, B(b) 21/25. **Hiçbir karar değişmiyor** (dengeli doğruluklar en fazla 0.013 oynuyor). Asıl sonuç
+  `kaggle.json` olarak kalıyor. kaggle içinde de evreler arası kopyalar var (ör. Stage_III_010 = Stage_IV_001).
+- **Adım 1 (petchs OOF, 166 kaynak; `training/eval_staging_step4_fixes.py` → `runs/staging/step4/petchs_fixes.json`):
+  iki düzeltme de işe yaramadı, PIID'e taşınmıyor.**
+  - B(b)+U (kural U derse U): 4-sınıf 0.617 vs B(b) 0.625 (−0.008 [−0.093, 0.071]), 5-sınıf −0.037
+    [−0.110, 0.031]. U yakalama 7/17 → 13/17, ama kurallar 77 Evre 3'ün 27'sine, 36 Evre 4'ün 6'sına yanlışlıkla U
+    diyor. U'suz önizlemede (U etiketliler çıkarılınca, n = 149) B(b)'den açıkça kötü: −0.135 [−0.202, −0.076].
+  - B(b)+T4 (p(4) eşiği): hiçbir tahmini değiştirmedi; katlı ayar t = 0.30'a (düz argmax) düştü. petchs'te B(b)
+    Evre 3'ü nadiren 4'e itiyor (7/77; kaggle'da 25/46), yani petchs bu eşiği ayarlamak için sinyal vermiyor.
+
 **2026-10-30 son durum (ayrıntı: "ÖN-KAYIT — katmanlı yara haritası" bölümü):** Kaynak-katlı DeepLab 166 bası
 kaynağında açık yüzeyi old-first'ün iki katı iyi buluyor: Dice 0.28 → 0.60, ıskalama %40 → %5, fark GA 0.27–0.36.
 Ama CWDB koruma eşiği tutmadığı için ürün maskesi ön-kayıt gereği old-first kaldı. Bu maskeyle evrede belirsiz
@@ -63,6 +97,57 @@ yama × 192 boyut, 6 katman, 5 kanal). Dizüstü ölçeğinde rastgele başlang�
 
 **Git:** `claude/sorbed-details-heuk41`. Staj raporları (`STAJ_RAPORU_*.md/.docx`) bilerek git dışında
 (`.git/info/exclude`); `.claude/settings.json` kişisel, commit edilmez.
+
+## ÖN-KAYIT — evreleme adım 4: PIID ikinci kilitli dış test (2026-11-27, ölçümden önce; kullanıcı onayladı 2026-11-27)
+**Soru:** adım 3'ün kaggle bulguları ikinci, bağımsız bir dış sette tekrarlanıyor mu? (1) fr7kn ek verisi evre
+CNN'ini iyileştiriyor mu, (2) hibrit kurallardan iyi mi, (3) kurallar Evre 4'ü hiç veremiyor mu.
+**Veri:** `runs/staging/step4_lists.json` (adım 0): 1052 görüntü / 1029 kaynak; etiket 1: 222, 2: 312, 3: 267,
+4: 251; U ve SDTI yok. Görüntüler olduğu gibi okunur (224×224), ek ön işlem yok. JEPA başlangıçlı model kullanılmaz
+(PIID JEPA havuzundaydı); DeepLab, doku CNN'i, YOLO ve evre CNN'leri PIID görmedi (adım 0 denetimi).
+**Yöntemler (adım 3'ten donmuş; hiçbir şey yeniden eğitilmez ya da ayarlanmaz):** hep Evre 3, A × old-first, A-D,
+B(a), B(b), H, H-b. Kural eşikleri adım 3'te tüm petchs'te ayarlanan değerler (`kaggle.json` →
+`thresholds_all_petchs`); B = 3 kat × 3 seed olasılık ortalaması; D maskesi = 3 kat DeepLab ortalaması > 0.5; doku =
+3 kat doku CNN'i ortalaması. `eval_staging_step3.kaggle()` ile aynı kod yolu, yalnız liste PIID. Adım 1'in
+düzeltmeleri (B(b)+U, B(b)+T4) petchs'te kazanç göstermediği için taşınmaz.
+**Ölçüm:**
+- **Birincil ölçüt:** 4-evre dengeli doğruluk {1, 2, 3, 4}. PIID'de U yok; U, DTI ve belirsiz çıktıları yanlış sayılır.
+- **İkincil:** 3-sınıf {1, 2, 3/4} dengeli doğruluk; Evre 4 duyarlılığı; evre dışı çıktı oranı; karışıklık matrisi.
+- **GA:** kaynak üzerinden eşli küme bootstrap, 10 000, %95. Karışık etiketli 2 kaynak adım 3'teki gibi: görüntüler
+  kendi etiketini korur, aynı kaynaktakiler birlikte çekilir.
+**Kararlar (önceden yazılı):**
+- **K1 (birincil):** B(b) − B(a), 4-evre. GA alt ucu > 0 → "ek veri CNN'i iyileştiriyor" ikinci dış sette tekrarlandı.
+- **K2:** H − A-D, 4-evre. GA alt ucu > 0 → hibrit tekrarlandı. İkincil: H-b − A-D.
+- **K3 (bilgi, yön iddiası yok):** B(b) − A-D, 4-evre. U'suz sette kuralların U çıktısı yanlış sayıldığı için bu fark
+  kurallar aleyhine eğilimli; yorumda bu söylenir, ek olarak kuralların evre verdiği görüntülerdeki doğruluk
+  betimsel raporlanır.
+- Evre 4 duyarlılığı (kurallar ve B(b)) raporlanır, karar değildir.
+**Tek sefer:** `training/eval_staging_step4_piid.py`, `runs/staging/step4/piid.json` varsa çalışmayı reddeder. Bu metin
+ölçümden önce kullanıcı onayıyla donar; sonuçlar altına SONUÇ olarak eklenir.
+
+**SONUÇ (koşuldu 2026-11-27, bir kez; `runs/staging/step4/piid.json`, ham çıktılar `piid_raw.json`):** n = 1052
+görüntü / 1029 kaynak (1: 222, 2: 312, 3: 267, 4: 251). Eşikler adım 3'tekiyle aynı (betik doğruladı).
+
+| yöntem | 4-evre {1,2,3,4} [GA] | 3-sınıf {1,2,3/4} | Evre 4 duy. [GA] | evre dışı çıktı | evre verdiğinde 4-evre |
+|---|---|---|---|---|---|
+| hep Evre 3 | 0.250 | 0.333 | 0 | 0 | 0.250 |
+| A × old-first | 0.146 [0.129, 0.163] | 0.216 | 0 | %52 | 0.293 (n 509) |
+| A-D | 0.205 [0.191, 0.219] | 0.289 | 0 | %37 | 0.265 (n 659) |
+| B(a) | 0.542 [0.515, 0.569] | 0.647 | 0.38 [0.32, 0.44] | %2 | 0.554 |
+| **B(b)** | **0.584 [0.555, 0.612]** | **0.726** | 0.43 [0.37, 0.49] | 0 | 0.584 |
+| H | 0.262 [0.241, 0.283] | 0.289 | 0.34 | %37 | 0.326 |
+| H-b | 0.262 [0.240, 0.283] | 0.289 | 0.38 | %37 | 0.324 |
+
+- **K1 (birincil) TUTTU:** B(b) − B(a) = +0.041 [0.007, 0.075]. Ek veri ikinci dış sette de yardım ediyor, ama
+  kaggle'dakinden (+0.13) küçük; B(a) PIID'de çökmüyor (0.54; kaggle'da 0.30).
+- **K2 TUTTU:** H − A-D = +0.057 [0.039, 0.074]; ikincil H-b − A-D = +0.056 [0.037, 0.074].
+- **K3 (bilgi):** B(b) − A-D = +0.378 [0.346, 0.410]. Kurallar PIID'de "hep Evre 3"ün bile altında: Evre 1'i hiç
+  veremiyor (A-D 0/222; 103'ü belirsiz, 50'si U, 26'sı DTI), Evre 2'nin 174/312'sine 3 diyor, Evre 4'ü hiç vermiyor
+  (H ile 86/251). Evre verdiği görüntülerle sınırlayınca bile 0.265 → kural kayıplarının sebebi yalnız U cezası değil.
+- B(b)'nin hatası Evre 3/4 ↔ 2 ve 4 → 3: Evre 3'ün 89/267'si 2'ye, Evre 4'ün 123/251'i 3'e gidiyor; kaggle'daki
+  "3'ü 4'e itme" PIID'de yok (40/267).
+- Sınırlar: PIID 224×224 düşük çözünürlük (eritem/renk kuralları için zor); kaynağı belirsiz etiketler; PIID ile
+  fr7kn ortak Medetec kökenli (kopyalar ve aynı-yara çekimleri atıldı, ama aynı kaynağın başka fotoğrafları kalmış
+  olabilir → B(b) lehine alan benzerliği). B(a) fr7kn görmeden 0.54 aldığı için CNN > kurallar sonucu buna bağlı değil.
 
 ## ÖN-KAYIT — evreleme adım 3: büyük veri + D maskesiyle kurallar + hibrit (2026-11-04, sonuçtan önce; kullanıcı onayladı)
 **Sorular:** (1) fr7kn'in petchs'te olmayan ~480 kaynağı, etiketleri gürültülü olsa da doğrudan evre CNN'ini (B)
